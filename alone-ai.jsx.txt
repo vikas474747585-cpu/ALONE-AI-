@@ -1,0 +1,334 @@
+import { useState, useRef, useEffect } from "react";
+
+const SYSTEM_PROMPT = `Aap ALONE AI hain — ek powerful, friendly aur helpful AI assistant jo har sawal ka jawab deta hai.
+
+Rules:
+1. Hamesha helpful aur accurate jawab do
+2. Koi bhi harmful, illegal, ya dangerous cheez mat batao (weapons, drugs, hacking etc.)
+3. Hinglish mein baat karo (Hindi + English mix) jab user Hinglish use kare, English mein baat karo jab user English use kare
+4. Short aur clear jawab do, zaroorat ho toh detail mein jao
+5. Friendly aur warm tone rakho
+6. Apna naam ALONE AI hai`;
+
+const SUGGESTIONS = [
+  { icon: "🌍", text: "Duniya kya hai?" },
+  { icon: "💡", text: "Ek naya business idea do" },
+  { icon: "📖", text: "Ek chhoti kahani sunao" },
+  { icon: "💻", text: "Python mein Hello World likhdo" },
+  { icon: "😄", text: "Ek funny joke sunao" },
+  { icon: "🔢", text: "2+2 kya hota hai?" },
+];
+
+const AIIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#00d4ff" strokeWidth="1.5">
+    <circle cx="10" cy="10" r="8" strokeDasharray="3 1.5"/>
+    <circle cx="10" cy="10" r="3.5" fill="rgba(0,212,255,0.2)"/>
+    <circle cx="10" cy="10" r="1.5" fill="#00d4ff"/>
+  </svg>
+);
+
+export default function AloneAI() {
+  const [chats, setChats] = useState([]); // [{id, title, messages, time}]
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const chatRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages, loading]);
+
+  const saveCurrentChat = (msgs, chatId, existingChats) => {
+    if (msgs.length === 0) return existingChats;
+    const title = msgs[0]?.content?.slice(0, 36) + (msgs[0]?.content?.length > 36 ? "..." : "") || "New Chat";
+    const existing = existingChats.find(c => c.id === chatId);
+    if (existing) {
+      return existingChats.map(c => c.id === chatId ? { ...c, messages: msgs, title } : c);
+    } else {
+      return [{ id: chatId, title, messages: msgs, time: Date.now() }, ...existingChats];
+    }
+  };
+
+  const sendMessage = async (text) => {
+    const userText = (text || input).trim();
+    if (!userText || loading) return;
+    setInput("");
+
+    const chatId = activeChatId || Date.now().toString();
+    if (!activeChatId) setActiveChatId(chatId);
+
+    const newMessages = [...messages, { role: "user", content: userText }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: SYSTEM_PROMPT,
+          messages: newMessages,
+        }),
+      });
+      const data = await res.json();
+      const reply = data.content?.map(b => b.text || "").join("") || "Kuch error aa gaya!";
+      const finalMsgs = [...newMessages, { role: "assistant", content: reply }];
+      setMessages(finalMsgs);
+      setChats(prev => saveCurrentChat(finalMsgs, chatId, prev));
+    } catch {
+      const errMsgs = [...newMessages, { role: "assistant", content: "⚠️ Network error. Dobara try karo!" }];
+      setMessages(errMsgs);
+      setChats(prev => saveCurrentChat(errMsgs, chatId, prev));
+    }
+    setLoading(false);
+  };
+
+  const newChat = () => {
+    setMessages([]);
+    setActiveChatId(null);
+    setInput("");
+    setSidebarOpen(false);
+    inputRef.current?.focus();
+  };
+
+  const openChat = (chat) => {
+    setMessages(chat.messages);
+    setActiveChatId(chat.id);
+    setSidebarOpen(false);
+  };
+
+  const deleteChat = (e, chatId) => {
+    e.stopPropagation();
+    setChats(prev => prev.filter(c => c.id !== chatId));
+    if (activeChatId === chatId) {
+      setMessages([]);
+      setActiveChatId(null);
+    }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const timeAgo = (ts) => {
+    const mins = Math.floor((Date.now() - ts) / 60000);
+    if (mins < 1) return "Abhi";
+    if (mins < 60) return `${mins}m pehle`;
+    if (mins < 1440) return `${Math.floor(mins/60)}h pehle`;
+    return `${Math.floor(mins/1440)}d pehle`;
+  };
+
+  return (
+    <div style={{ height:"100vh", display:"flex", flexDirection:"column", background:"#050810", color:"#e0eaff", fontFamily:"'Rajdhani','Segoe UI',sans-serif", position:"relative", overflow:"hidden" }}>
+
+      {/* BG Grid */}
+      <div style={{ position:"fixed", inset:0, zIndex:0, pointerEvents:"none", backgroundImage:"linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px)", backgroundSize:"40px 40px" }}/>
+      <div style={{ position:"fixed", top:-80, right:-60, width:280, height:280, borderRadius:"50%", background:"rgba(0,212,255,0.07)", filter:"blur(70px)", pointerEvents:"none", zIndex:0 }}/>
+      <div style={{ position:"fixed", bottom:-60, left:-40, width:240, height:240, borderRadius:"50%", background:"rgba(123,47,255,0.09)", filter:"blur(70px)", pointerEvents:"none", zIndex:0 }}/>
+
+      {/* SIDEBAR OVERLAY */}
+      {sidebarOpen && (
+        <div onClick={() => setSidebarOpen(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:40, backdropFilter:"blur(2px)" }}/>
+      )}
+
+      {/* SIDEBAR */}
+      <div style={{
+        position:"fixed", left:0, top:0, bottom:0, width:260,
+        background:"rgba(8,12,25,0.97)", borderRight:"1px solid #1a2a5e",
+        zIndex:50, display:"flex", flexDirection:"column",
+        transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
+        transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)",
+        backdropFilter:"blur(20px)",
+      }}>
+        {/* Sidebar Header */}
+        <div style={{ padding:"14px 14px 10px", borderBottom:"1px solid #1a2a5e", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <span style={{ fontFamily:"monospace", fontSize:"0.65rem", letterSpacing:2, color:"#00d4ff" }}>CHAT HISTORY</span>
+          <button onClick={() => setSidebarOpen(false)} style={{ background:"none", border:"none", color:"#4a6080", cursor:"pointer", fontSize:"1.1rem", lineHeight:1 }}>✕</button>
+        </div>
+
+        {/* New Chat in sidebar */}
+        <div style={{ padding:"10px 12px", borderBottom:"1px solid #0d1428" }}>
+          <button onClick={newChat} style={{
+            width:"100%", padding:"9px 12px", background:"linear-gradient(135deg,rgba(0,212,255,0.1),rgba(123,47,255,0.1))",
+            border:"1px solid rgba(0,212,255,0.25)", borderRadius:8, color:"#00d4ff",
+            fontFamily:"monospace", fontSize:"0.62rem", letterSpacing:1.5, cursor:"pointer",
+            display:"flex", alignItems:"center", gap:7,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#00d4ff" strokeWidth="2"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+            NEW CHAT
+          </button>
+        </div>
+
+        {/* Chat List */}
+        <div style={{ flex:1, overflowY:"auto", padding:"8px 8px" }}>
+          {chats.length === 0 ? (
+            <div style={{ textAlign:"center", color:"#2a3a5e", fontSize:"0.75rem", marginTop:30, lineHeight:2 }}>
+              Koi chat nahi hai abhi.<br/>Naya chat shuru karo!
+            </div>
+          ) : (
+            chats.map(chat => (
+              <div key={chat.id} onClick={() => openChat(chat)} style={{
+                padding:"10px 10px", borderRadius:8, marginBottom:4, cursor:"pointer",
+                background: activeChatId === chat.id ? "rgba(0,212,255,0.08)" : "transparent",
+                border: activeChatId === chat.id ? "1px solid rgba(0,212,255,0.2)" : "1px solid transparent",
+                transition:"all 0.2s", position:"relative", display:"flex", alignItems:"flex-start", gap:8,
+              }}
+                onMouseOver={e => { if(activeChatId!==chat.id) e.currentTarget.style.background="rgba(255,255,255,0.03)"; }}
+                onMouseOut={e => { if(activeChatId!==chat.id) e.currentTarget.style.background="transparent"; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#4a6080" strokeWidth="1.5" style={{flexShrink:0,marginTop:2}}>
+                  <path d="M14 10c0 .6-.4 1-1 1H5l-3 3V3c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v7z"/>
+                </svg>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:"0.78rem", color: activeChatId===chat.id ? "#00d4ff" : "#8090b0", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", letterSpacing:0.3 }}>
+                    {chat.title}
+                  </div>
+                  <div style={{ fontSize:"0.6rem", color:"#2a3a5e", marginTop:2 }}>{timeAgo(chat.time)} · {chat.messages.length} msgs</div>
+                </div>
+                <button onClick={e => deleteChat(e, chat.id)} style={{
+                  background:"none", border:"none", color:"#2a3a5e", cursor:"pointer", fontSize:"0.75rem",
+                  padding:"2px 4px", borderRadius:4, flexShrink:0,
+                }}
+                  onMouseOver={e => e.currentTarget.style.color="#ff2d78"}
+                  onMouseOut={e => e.currentTarget.style.color="#2a3a5e"}
+                >✕</button>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{ padding:"10px 12px", borderTop:"1px solid #0d1428", fontSize:"0.55rem", color:"#2a3a5e", letterSpacing:1, textAlign:"center", fontFamily:"monospace" }}>
+          ALONE AI v1.0 • SESSION ONLY
+        </div>
+      </div>
+
+      {/* HEADER */}
+      <div style={{ zIndex:10, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a2a5e", background:"rgba(10,15,30,0.9)", backdropFilter:"blur(20px)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {/* History button */}
+          <button onClick={() => setSidebarOpen(true)} style={{
+            width:34, height:34, borderRadius:8, background:"rgba(0,212,255,0.06)", border:"1px solid #1a2a5e",
+            display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0,
+          }}
+            onMouseOver={e => { e.currentTarget.style.borderColor="#00d4ff"; e.currentTarget.style.background="rgba(0,212,255,0.12)"; }}
+            onMouseOut={e => { e.currentTarget.style.borderColor="#1a2a5e"; e.currentTarget.style.background="rgba(0,212,255,0.06)"; }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#00d4ff" strokeWidth="1.5">
+              <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="10" y2="12"/>
+            </svg>
+            {chats.length > 0 && (
+              <span style={{ position:"absolute", top:8, left:8, width:6, height:6, borderRadius:"50%", background:"#00d4ff", fontSize:0 }}/>
+            )}
+          </button>
+          <svg width="32" height="32" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="16" stroke="#00d4ff" strokeWidth="1.5" strokeDasharray="4 2"/>
+            <circle cx="18" cy="18" r="9" fill="rgba(0,212,255,0.08)" stroke="#7b2fff" strokeWidth="1"/>
+            <circle cx="18" cy="18" r="4" fill="#00d4ff" opacity="0.9"/>
+            <line x1="18" y1="2" x2="18" y2="9" stroke="#00d4ff" strokeWidth="1.5"/>
+            <line x1="18" y1="27" x2="18" y2="34" stroke="#00d4ff" strokeWidth="1.5"/>
+            <line x1="2" y1="18" x2="9" y2="18" stroke="#00d4ff" strokeWidth="1.5"/>
+            <line x1="27" y1="18" x2="34" y2="18" stroke="#00d4ff" strokeWidth="1.5"/>
+          </svg>
+          <div>
+            <div style={{ fontFamily:"monospace", fontSize:"1.1rem", fontWeight:900, letterSpacing:4, background:"linear-gradient(135deg,#00d4ff,#7b2fff)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>ALONE</div>
+            <div style={{ fontSize:"0.45rem", letterSpacing:2, color:"#4a6080", fontFamily:"monospace", marginTop:-3 }}>ARTIFICIAL INTELLIGENCE</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{ width:7, height:7, borderRadius:"50%", background:"#00ff88", boxShadow:"0 0 8px #00ff88" }}/>
+            <span style={{ fontSize:"0.6rem", color:"#00ff88", fontFamily:"monospace", letterSpacing:1 }}>ONLINE</span>
+          </div>
+          <button onClick={newChat} style={{
+            display:"flex", alignItems:"center", gap:5, padding:"6px 11px",
+            background:"rgba(0,212,255,0.08)", border:"1px solid #1a2a5e",
+            borderRadius:6, color:"#00d4ff", fontFamily:"monospace",
+            fontSize:"0.58rem", letterSpacing:1, cursor:"pointer",
+          }}
+            onMouseOver={e => { e.currentTarget.style.borderColor="#00d4ff"; e.currentTarget.style.background="rgba(0,212,255,0.15)"; }}
+            onMouseOut={e => { e.currentTarget.style.borderColor="#1a2a5e"; e.currentTarget.style.background="rgba(0,212,255,0.08)"; }}
+          >
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#00d4ff" strokeWidth="2"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+            NEW CHAT
+          </button>
+        </div>
+      </div>
+
+      {/* CHAT AREA */}
+      <div ref={chatRef} style={{ flex:1, overflowY:"auto", padding:"20px 14px", position:"relative", zIndex:5 }}>
+        {messages.length === 0 ? (
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100%", gap:16, textAlign:"center" }}>
+            <div style={{ width:76, height:76, borderRadius:22, background:"linear-gradient(135deg,rgba(0,212,255,0.1),rgba(123,47,255,0.15))", border:"2px solid rgba(0,212,255,0.25)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 24px rgba(0,212,255,0.3),0 0 40px rgba(123,47,255,0.15)" }}>
+              <svg width="42" height="42" viewBox="0 0 42 42" fill="none">
+                <circle cx="21" cy="21" r="19" stroke="#00d4ff" strokeWidth="1.5" opacity="0.5"/>
+                <circle cx="21" cy="21" r="12" stroke="#7b2fff" strokeWidth="1" strokeDasharray="3 2"/>
+                <circle cx="21" cy="21" r="6" fill="rgba(0,212,255,0.15)" stroke="#00d4ff" strokeWidth="1.5"/>
+                <circle cx="21" cy="21" r="2.5" fill="#00d4ff"/>
+              </svg>
+            </div>
+            <div style={{ fontFamily:"monospace", fontSize:"1.6rem", fontWeight:900, letterSpacing:6, background:"linear-gradient(135deg,#00d4ff,#7b2fff,#ff2d78)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>ALONE AI</div>
+            <div style={{ color:"#4a6080", fontSize:"0.82rem", maxWidth:270, lineHeight:1.7 }}>Har sawal ka jawab. Intelligent. Fast. Aapka personal AI assistant.</div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:8, justifyContent:"center", maxWidth:320, marginTop:4 }}>
+              {SUGGESTIONS.map((s,i) => (
+                <button key={i} onClick={() => sendMessage(s.text)} style={{ padding:"7px 13px", background:"rgba(26,42,94,0.4)", border:"1px solid #1a2a5e", borderRadius:20, fontSize:"0.72rem", color:"#4a6080", cursor:"pointer", transition:"all 0.2s" }}
+                  onMouseOver={e => { e.currentTarget.style.borderColor="#00d4ff"; e.currentTarget.style.color="#00d4ff"; e.currentTarget.style.background="rgba(0,212,255,0.07)"; }}
+                  onMouseOut={e => { e.currentTarget.style.borderColor="#1a2a5e"; e.currentTarget.style.color="#4a6080"; e.currentTarget.style.background="rgba(26,42,94,0.4)"; }}
+                >{s.icon} {s.text}</button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            {messages.map((msg,i) => (
+              <div key={i} style={{ display:"flex", gap:10, marginBottom:16, flexDirection: msg.role==="user"?"row-reverse":"row" }}>
+                <div style={{ width:32, height:32, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, background: msg.role==="user"?"linear-gradient(135deg,rgba(255,45,120,0.15),rgba(123,47,255,0.2))":"linear-gradient(135deg,rgba(0,212,255,0.12),rgba(123,47,255,0.18))", border: msg.role==="user"?"1px solid rgba(255,45,120,0.3)":"1px solid rgba(0,212,255,0.3)", fontSize:"0.6rem", fontFamily:"monospace", color: msg.role==="user"?"#ff2d78":"#00d4ff" }}>
+                  {msg.role==="user"?"YOU":<AIIcon/>}
+                </div>
+                <div style={{ maxWidth:"78%", padding:"11px 15px", borderRadius:13, fontSize:"0.88rem", lineHeight:1.65, background: msg.role==="user"?"linear-gradient(135deg,rgba(0,212,255,0.1),rgba(123,47,255,0.13))":"rgba(13,20,40,0.9)", border: msg.role==="user"?"1px solid rgba(123,47,255,0.3)":"1px solid rgba(0,212,255,0.12)", borderTopRightRadius: msg.role==="user"?4:13, borderTopLeftRadius: msg.role==="user"?13:4, whiteSpace:"pre-wrap" }}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+                <div style={{ width:32, height:32, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(135deg,rgba(0,212,255,0.12),rgba(123,47,255,0.18))", border:"1px solid rgba(0,212,255,0.3)" }}><AIIcon/></div>
+                <div style={{ padding:"14px 18px", background:"rgba(13,20,40,0.9)", border:"1px solid rgba(0,212,255,0.12)", borderRadius:13, borderTopLeftRadius:4, display:"flex", gap:6, alignItems:"center" }}>
+                  {["#00d4ff","#7b2fff","#ff2d78"].map((c,i) => (
+                    <div key={i} style={{ width:7, height:7, borderRadius:"50%", background:c, animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite` }}/>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* INPUT */}
+      <div style={{ zIndex:10, padding:"12px 14px", background:"rgba(10,15,30,0.9)", backdropFilter:"blur(20px)", borderTop:"1px solid #1a2a5e" }}>
+        <div style={{ display:"flex", alignItems:"flex-end", gap:10, background:"rgba(13,20,40,0.85)", border:"1px solid #1a2a5e", borderRadius:13, padding:"10px 14px", boxShadow: input?"0 0 18px rgba(0,212,255,0.15)":"none", transition:"box-shadow 0.3s" }}>
+          <textarea ref={inputRef} rows={1} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey}
+            placeholder="Kuch bhi poocho... Main hoon ALONE AI 🤖"
+            style={{ flex:1, background:"transparent", border:"none", outline:"none", color:"#e0eaff", fontFamily:"'Rajdhani','Segoe UI',sans-serif", fontSize:"0.95rem", resize:"none", maxHeight:110, lineHeight:1.5 }}
+          />
+          <button onClick={() => sendMessage()} disabled={loading||!input.trim()} style={{ width:36, height:36, borderRadius:10, border:"none", cursor:"pointer", background: input.trim()?"linear-gradient(135deg,#00d4ff,#7b2fff)":"#1a2a5e", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.25s", boxShadow: input.trim()?"0 0 14px rgba(0,212,255,0.35)":"none" }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2L2 8.5l5 1.5L8.5 14 14 2z"/></svg>
+          </button>
+        </div>
+        <div style={{ textAlign:"center", fontSize:"0.57rem", color:"#2a3a5e", marginTop:7, letterSpacing:1.5, fontFamily:"monospace" }}>
+          ALONE AI • SAFE & SECURE • POWERED BY ADVANCED AI
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes bounce { 0%,80%,100%{transform:scale(0.7);opacity:0.5} 40%{transform:scale(1);opacity:1} }
+        ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#1a2a5e;border-radius:2px}
+        textarea::placeholder{color:#2a3a5e}
+      `}</style>
+    </div>
+  );
+}
